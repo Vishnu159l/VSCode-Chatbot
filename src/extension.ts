@@ -161,7 +161,7 @@ class ChatBotWebView implements vscode.WebviewViewProvider {
 							</div>
 							<div class="bulb">
                 				<button class="button" onclick="updateState()" id="bulb-id">
-                    				<img src="${bulbUri}" width="26px" height="30px" alt="Theme Toggle">
+                    				<img src="${bulbUri}" width="26px" height="30px">
                 				</button>
             				</div>
 							<div class="submit-button">
