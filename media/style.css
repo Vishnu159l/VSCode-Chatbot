@@ -125,11 +125,11 @@ pre {
     background-color: rgb(0, 0, 0);
     color:  #3ee54c;
     padding: 12px;
-    border-radius: 8px 8px 0 0;
+    border-radius: 0 0 8px 8px;
     overflow-x: auto;
     font-family: 'Courier New', sans-serif;
     font-size: 0.9em;
-    margin: 12px 0 0 0;
+    margin: 0 0 12px 0;
     border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
@@ -144,18 +144,21 @@ code {
 
 .copy-container{
     background-color: rgb(0, 0, 0);
-    border-radius: 0 0 8px 8px;
+    border-radius: 8px 8px 0 0;
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
 }
 
 .copy-button{
+    padding-top: 5px;
+    border: transparent;
+    background-color: rgb(0, 0, 0);
     border-radius: 50%;
 }
 
 .copy-img{
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
 }
 

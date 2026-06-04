@@ -1,4 +1,7 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
+import {debugFileLoop} from './deBugger.js';
 
 export function activate(context: vscode.ExtensionContext) {
 
@@ -28,6 +31,104 @@ class ChatBotWebView implements vscode.WebviewViewProvider {
 		};
 
 		webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+
+		const resolveWorkspacePath = (filePath: string): string => {
+			if (!path.isAbsolute(filePath)) {
+				const folders = vscode.workspace.workspaceFolders;
+				if (folders && folders.length > 0) {
+					return path.resolve(folders[0].uri.fsPath, filePath);
+				}
+			}
+			return filePath;
+		};
+
+		webviewView.webview.onDidReceiveMessage(message => {
+            if (message.command === "readFile") {
+                try {
+                    const resolvedPath = resolveWorkspacePath(message.path);
+                    const content = fs.readFileSync(resolvedPath, 'utf8');
+                    webviewView.webview.postMessage({
+                        command: 'fileData',
+                        path: message.path,
+                        content: content
+                    });
+                } catch (error: any) {
+                    vscode.window.showErrorMessage(`Failed to load file: ${error.message}`);
+                    webviewView.webview.postMessage({
+                        command: 'fileData',
+                        path: message.path,
+                        error: error.message
+                    });
+                }
+            }
+        });
+
+		webviewView.webview.onDidReceiveMessage(message => {
+			if(message.command === "writeFile"){
+				try{
+					const resolvedPath = resolveWorkspacePath(message.path);
+					fs.writeFileSync(resolvedPath,message.content);
+				}
+				catch(error){
+					vscode.window.showErrorMessage(`Failed to load file: ${error}`);
+				}
+			}
+		});	
+
+		webviewView.webview.onDidReceiveMessage(async message => {
+			if (message.command === "findFilePath") {
+				try {
+					const files = await vscode.workspace.findFiles(`**/${message.fileName}`);
+					if (files && files.length > 0) {
+						webviewView.webview.postMessage({
+							command: 'filePathResponse',
+							fileName: message.fileName,
+							filePath: files[0].fsPath
+						});
+					} else {
+						webviewView.webview.postMessage({
+							command: 'filePathResponse',
+							fileName: message.fileName,
+							filePath: undefined
+						});
+					}
+				} catch (error: any) {
+					vscode.window.showErrorMessage(`Failed to find file: ${error.message}`);
+					webviewView.webview.postMessage({
+						command: 'filePathResponse',
+						fileName: message.fileName,
+						error: error.message
+					});
+				}
+			}
+		});
+
+		webviewView.webview.onDidReceiveMessage(async message =>{
+			if(message.command === "debugFile"){
+				try{
+					const resolvedPath = resolveWorkspacePath(message.path);
+					const res = await debugFileLoop(resolvedPath, (status) => {
+						webviewView.webview.postMessage({
+							command: 'debugStatus',
+							path: message.path,
+							msg: status
+						});
+					});
+					webviewView.webview.postMessage({
+                        command: 'debugresponse',
+						path: message.path,
+                        msg: res.message
+                    });
+				}catch(error: any){
+					vscode.window.showErrorMessage("Failed to debug code");
+					webviewView.webview.postMessage({
+                        command: 'debugresponse',
+                        path: message.path,
+                        error: error.message
+                    });
+				}
+			}
+		});
 	}
 
 	private _getHtmlForWebview(webview: vscode.Webview) {
@@ -39,8 +140,9 @@ class ChatBotWebView implements vscode.WebviewViewProvider {
 		const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri,'media','script.js'));
 		const bulbUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri,'media','light-bulb-13-svgrepo-com.svg'));
 		const copyUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri,'media','copy-svgrepo-com.svg'));
-		const tickUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri,'media','tick-svgrepo-com.svg'))
-
+		const tickUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri,'media','tick-svgrepo-com.svg'));
+		const plusUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri,'media','plus-svgrepo-com.svg'));
+		const fileUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri,'media','test.txt'));
 		const nonce = getNonce();
 
 		return `<!DOCTYPE html>
@@ -70,12 +172,15 @@ class ChatBotWebView implements vscode.WebviewViewProvider {
 						</div>
 					</div>
 					<script nonce="${nonce}">
+						const vscodet = "${vscode}";
+						const path = "${path}";
 						const userUri = "${userUri}";
 						const botUri = "${botUri}";
 						const copyUri = "${copyUri}";
 						const tickUri = "${tickUri}";
+						const fileUri = "${fileUri}";
 					</script>
-					<script nonce="${nonce}" src="${scriptUri}"></script>
+					<script type="module" nonce="${nonce}" src="${scriptUri}"></script>
 				</body>
 				</html>`;
 	}
