@@ -2,8 +2,16 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import {debugFileLoop} from './deBugger.js';
+import * as child_process from 'child_process';
+
+let workspaceFolders = '';
 
 export function activate(context: vscode.ExtensionContext) {
+	workspaceFolders = vscode.workspace.workspaceFolders[0].uri.fsPath;
+
+	child_process.spawn('python',['-u','E:/zoho/chatbot/codebase_rag/rag.py',workspaceFolders]);
+
+	console.log(123);	
 
 	const provider = new ChatBotWebView(context.extensionUri);
 
@@ -120,12 +128,36 @@ class ChatBotWebView implements vscode.WebviewViewProvider {
                         msg: res.message
                     });
 				}catch(error: any){
-					vscode.window.showErrorMessage("Failed to debug code");
+					vscode.window.showErrorMessage(`Failed to debug code:${error}`);
 					webviewView.webview.postMessage({
                         command: 'debugresponse',
                         path: message.path,
                         error: error.message
                     });
+				}
+			}
+		});
+
+		webviewView.webview.onDidReceiveMessage(async message =>{
+			if(message.command === "Rag"){
+				try{
+					const child = child_process.spawn('python',['-u','E:/zoho/chatbot/codebase_rag/rag_pipeline.py',workspaceFolders,message.query]);
+
+					let text = '';
+					child.stdout.on('data',(data)=>{
+						text = data.toString();
+					});
+					child.stderr.on('data', (data) => {
+						console.error(`stderr: ${data.toString()}`);
+					});
+					child.on('close', (code) => {
+						webviewView.webview.postMessage({
+							command: "rag",
+							content: text
+						});
+					});
+				}catch(error: any){
+					vscode.window.showErrorMessage(`Failed to fetch rag sol:${error}`);
 				}
 			}
 		});

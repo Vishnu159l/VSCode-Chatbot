@@ -75,6 +75,14 @@ async function getBotResponse(prompt,bot_text,state){
     const API_URL = "http://127.0.0.1:1234/v1/chat/completions";
     const MODEL_NAME = "google/gemma-4-e4b";
     const USER_PROMPT = prompt;
+    const SYSTEM_PROMPT = `You are a helpful chatbot assistant designed to analyze and interact with a codebase. 
+
+IMPORTANT PROTOCOLS:
+1. Always use the 'codebaseRAG' tool first whenever the user asks questions about code functionality, logic, architecture, errors, or requests a summary of how the application works.
+2. Always use the 'findFilePath' tool to locate a file's absolute path when the user specifies a specific filename or relative path, before executing targeted file tools like 'readfile', 'writefile', or 'debugfile'.
+3. Do not guess or assume file contents or logic. Rely on 'codebaseRAG' for conceptual knowledge and the file tools for direct execution.
+
+    `;
 
     const tools = [
         {
@@ -192,13 +200,29 @@ async function getBotResponse(prompt,bot_text,state){
                 },
                 strict: true,
             }
+        },
+        {
+            type: "function",
+            function: {
+                name: "rag",
+                description: "Use this tool to search, query, and retrieve context from the entire indexed codebase. Ideal for answering conceptual questions, explaining how functions interact, finding where specific logic is implemented, troubleshooting errors, or understanding the overall architecture of the workspace repository.",
+                parameters: {
+                    type: "object",
+                    properties:{
+                        query: {type: "string"}
+                    },
+                    required: ["query"],
+                    additionalProperties: false,
+                },
+                strict: true,
+            }
         }
     ]
 
     const data = {
         model: MODEL_NAME,
         messages: [
-            {"role":"system","content":"You are a helpful chatbot assistant. IMPORTANT: Always use the 'findFilePath' tool to locate a file's absolute path when the user specifies a filename or a relative path, before executing other file tools like 'readfile', 'writefile', or 'debugfile'."},
+            {"role":"system","content":SYSTEM_PROMPT},
             {"role":"user","content":USER_PROMPT}
         ],
         tools,
@@ -403,6 +427,28 @@ async function findFilePath({fileName}){
     });
 }
 
+async function RAGQuery({query}){
+    return new Promise((resolve) => {
+        vscode.postMessage({
+            command: "Rag",
+            query: query,
+        });
+
+        const listener = event => {
+            const message = event.data;
+            if (message.command === 'rag') {
+                window.removeEventListener('message', listener);
+                if (message.error) {
+                    resolve(`Error: ${message.error}`);
+                } else {
+                    resolve(message.content);
+                }
+            }
+        };
+        window.addEventListener('message', listener);
+    });
+}
+
 async function safeCall(toolName, args){
     if(toolName === "add" && typeof args.x === "number" && typeof args.y === "number"){
         return add(args);
@@ -424,6 +470,9 @@ async function safeCall(toolName, args){
     }
     if(toolName === "findFilePath" && typeof args.fileName === "string"){
         return await findFilePath(args);
+    }
+    if(toolName === "rag" && typeof args.query === "string"){
+        return await RAGQuery(args);
     }
     throw new Error(`Invalid tool call: ${toolName} with args ${JSON.stringify(args)}`);
 }
