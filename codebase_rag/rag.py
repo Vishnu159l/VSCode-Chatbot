@@ -36,7 +36,7 @@ def get_files_content(repo_path):
 repo_path = sys.argv[1]
 file_content = get_files_content(repo_path)
 
-llm_client = OpenAI(
+clientlm = OpenAI(
     base_url="http://localhost:1234/v1",
     api_key="lm-studio"
 )
@@ -55,7 +55,7 @@ id_counter = 0
 for file in file_content:
     chunks = chunk_text(file["content"])
     for chunk in chunks:
-        response = llm_client.embeddings.create(
+        response = clientlm.embeddings.create(
             model="text-embedding-nomic-embed-text-v1.5",
             input=chunk
         )
