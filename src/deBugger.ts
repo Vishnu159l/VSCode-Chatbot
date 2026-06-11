@@ -3,6 +3,8 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
+import {initParser,getCodeBlock} from './Tree.js';
+
 function getExtension(filePath: string) {
     const ext = path.extname(filePath);
     if (ext === ".py") return "python";
@@ -24,10 +26,6 @@ function runFile(
     }
 
     return new Promise((resolve) => {
-        child_process.spawn('cmd.exe',['/k',interpreter,filePath],{
-            detached: true,
-            stdio: 'inherit'
-        });
         const child = child_process.spawn(interpreter, ['-u', filePath]);
         let er = '';
 
@@ -90,29 +88,37 @@ async function llmRequest(code: string, error: string, filepath: string) {
     const API_URL = "http://127.0.0.1:1234/v1/chat/completions";
     const MODEL_NAME = "google/gemma-4-e4b";
     const USER_PROMPT = `
-You are an automated code debugging system.
+You are an automated AST-aware code debugging system.
 
-Your task is to fix the code based ONLY on:
-1. The provided source code
+Your task is to fix ONLY the provided code snippet based on:
+1. The provided code snippet
 2. The runtime/syntax error
-3. The stack trace or stderr output
-4. The execution transcript (stdout, stderr, and stdin inputs) leading to the error
+3. The traceback or stderr output
+4. The execution transcript
 
 IMPORTANT RULES:
 - Fix ONLY the actual issue causing the error.
-- Do NOT change unrelated logic.
-- Preserve the original structure and formatting as much as possible.
-- Return the COMPLETE corrected file.
+- Do NOT modify unrelated logic.
+- Preserve formatting and structure as much as possible.
+- Do NOT rewrite surrounding code that is not required.
+- Return ONLY the corrected version of the provided code snippet.
+- Do NOT return the entire file.
 - Do NOT include explanations.
+- Do NOT describe the fix.
 - Do NOT include markdown explanations.
 - Do NOT include comments unless they already exist.
-- Do NOT describe the fix.
-- Output ONLY the corrected code inside a single markdown code block.
+- Output ONLY the corrected code inside ONE markdown code block.
 - The code block language MUST match the file extension.
 
-The source code below contains line numbers for debugging reference.
-Those line numbers are NOT part of the actual code.
-Do NOT include line numbers in your output.
+The code snippet below may represent:
+- a function
+- a class
+- an expression
+- an if statement
+- a loop
+- or another AST node extracted from the source file.
+
+The snippet may NOT represent the entire file.
 
 FILE NAME:
 ${fileName}
@@ -120,15 +126,17 @@ ${fileName}
 ERROR OUTPUT:
 ${error}
 
-SOURCE CODE WITH LINE NUMBERS:
-${numberedCode}
+CODE SNIPPET:
+${code}
 
 Return ONLY:
 
 \`\`\`${ext}
-[complete corrected code]
+[corrected code snippet]
 \`\`\`
 `;
+
+
 
     const data = {
         model: MODEL_NAME,
@@ -159,6 +167,18 @@ ${error}
 \`\`\``;
 }
 
+function getErrorLine(error: string) {
+    const pattern = /File "(.+?)", line (\d+)/g;
+    const lines = [];
+    let match;
+
+    while ((match = pattern.exec(error)) !== null) {
+        lines.push(parseInt(match[2], 10));
+    }
+
+    return lines[lines.length-1];
+}
+
 export async function debugFileLoop(filePath: string, onStatus?: (statusMsg: string) => void) {
     let errcount = 0;
 
@@ -170,6 +190,8 @@ export async function debugFileLoop(filePath: string, onStatus?: (statusMsg: str
             enableScripts: true
         }
     );
+
+    await initParser();
 
     panel.webview.html = getSimpleWebviewHtml();
 
@@ -193,6 +215,9 @@ export async function debugFileLoop(filePath: string, onStatus?: (statusMsg: str
 
         panel.webview.postMessage({ command: 'debugger', text: `Execution Failed. Waiting for LLM to fix` });
 
+
+        const errline = getErrorLine(result.err);
+
         let originalcode = "";
         try {
             originalcode = await fs.readFile(filePath, 'utf8');
@@ -204,8 +229,13 @@ export async function debugFileLoop(filePath: string, onStatus?: (statusMsg: str
         }
 
         try {
-            const correctedcode = await llmRequest(originalcode, result.err, filePath);
-            await fs.writeFile(filePath, correctedcode);
+            const targetNode = await getCodeBlock(originalcode,errline);
+            const targetCode = originalcode.slice(targetNode.startIndex,targetNode.endIndex);
+            console.log(targetNode.type);
+            console.log(targetCode);
+            const correctedcode = await llmRequest(targetCode, result.err, filePath);
+            const updatedCode = originalcode.slice(0, targetNode.startIndex) + correctedcode + originalcode.slice(targetNode.endIndex);
+            await fs.writeFile(filePath, updatedCode);
         } catch (err) {
             return {
                 success: false,

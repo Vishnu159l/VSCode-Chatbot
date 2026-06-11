@@ -3,6 +3,9 @@ from dotenv import load_dotenv
 import os
 import sys
 from openai import OpenAI 
+import tree_sitter_python as pythonts
+import tree_sitter_javascript as jsts
+from tree_sitter import Language, Parser
 
 load_dotenv()
 
@@ -33,8 +36,34 @@ def get_files_content(repo_path):
                     files_content.append(file_content)
     return files_content
 
+def code_chunks(code,e):
+    
+    if(e == ".py"):
+        lang = Language(pythonts.language())
+        targetNode = ["function_definition","class_definition"]
+    elif(e == ".js"):
+        lang = Language(jsts.language())
+        targetNode = ["function_declaration","class_declaration"]
+    
+    parser = Parser(lang)
+    tree = parser.parse(bytes(code,"utf8"))
+
+    root = tree.root_node
+    chunks = []
+    def next(node):
+        if node.type in targetNode:
+            chunk = code[node.start_byte:node.end_byte]
+            chunks.append(chunk)
+
+        for child in node.children:
+            next(child)
+    next(root)
+    return chunks
+
 repo_path = sys.argv[1]
+
 file_content = get_files_content(repo_path)
+
 
 clientlm = OpenAI(
     base_url="http://localhost:1234/v1",
@@ -53,7 +82,22 @@ def chunk_text(text, chunk_size=1000):
 id_counter = 0
 
 for file in file_content:
-    chunks = chunk_text(file["content"])
+    
+    ext = os.path.splitext(file["name"])[1]
+    
+    if ext == ".py":
+        chunks = code_chunks(file["content"],".py")
+        for chunk in chunks:
+            print(f"chunk: {chunk}")
+    elif ext == ".js":
+        print(ext)
+        chunks = code_chunks(file["content"],".js")
+        for chunk in chunks:
+            print(f"chunk: {chunk}")
+    else:
+        chunks = chunk_text(file["content"])
+
+    #chunks = chunk_text(file["content"])
     for chunk in chunks:
         response = clientlm.embeddings.create(
             model="text-embedding-nomic-embed-text-v1.5",
